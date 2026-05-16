@@ -630,6 +630,7 @@ if st.session_state.file_manager:
                 
             with col_eye:
                 if st.button("", icon=":material/visibility:", key=f"eye_{idx}_{f['name']}", help="Preview file"):
+                    st.session_state.xai_open = None  # close xai to avoid dialog overlap
                     preview_dialog(f)
                     
             with col_x:
