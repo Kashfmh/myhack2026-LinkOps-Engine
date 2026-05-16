@@ -8,14 +8,14 @@ import time
 import random
 import concurrent.futures
 
-# 1. PAGE CONFIG & MATERIAL ICONS
+# setup & icons
 st.set_page_config(
     page_title="LinkOps Engine",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Inject Material Symbols & Structural CSS (Colors handled by config.toml)
+# styling hacks for ui
 st.markdown("""
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@400,0&display=swap" rel="stylesheet">
 <style>
@@ -28,13 +28,12 @@ st.markdown("""
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
     
-    /* NEW: Shave off top padding in main page */
+    /* fix padding */
     .block-container {
         padding-top: 2rem !important; 
         padding-bottom: 2rem !important;
     }
     
-    /* NEW: Shave off top padding in sidebar */
     [data-testid="stSidebarHeader"] {
         padding-top: 1rem !important;
         padding-bottom: 0rem !important;
@@ -43,7 +42,7 @@ st.markdown("""
         padding-top: 0rem !important;
     }
 
-    /* Sidebar Toggle — keep collapse button always visible */
+    /* keep sidebar toggle visible */
     [data-testid="stSidebarHeader"],
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] {
@@ -52,8 +51,7 @@ st.markdown("""
         transition: none !important;
     }
 
-    /* --- Button Alignment Fix --- */
-    /* Keep eye & delete buttons same size always, both are secondary type */
+    /* align buttons */
     [data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(4) button,
     [data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(5) button {
         width: 46px !important;
@@ -62,7 +60,7 @@ st.markdown("""
         padding-right: 0 !important;
     }
 
-    /* Style pending-delete buttons (warning icon) with amber color */
+    /* warning state for delete btns */
     [data-testid="stHorizontalBlock"] > div[data-testid="column"]:nth-child(5) button[data-pending="true"],
     button[kind="secondary"][aria-label="Confirm deletion"] {
         color: #f59e0b !important;
@@ -70,7 +68,7 @@ st.markdown("""
         background-color: rgba(245, 158, 11, 0.08) !important;
     }
 
-    /* Custom File Uploader layout */
+    /* custom dropzone ui */
     [data-testid="stFileUploaderDropzone"] {
         background-color: transparent !important;
         display: flex !important;
@@ -107,16 +105,46 @@ st.markdown("""
         background-color: #30363d;
     }
 
-    /* Center all @st.dialog modals vertically in the viewport */
+    /* center modals */
     [data-testid="stModal"] {
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
     }
+
+    /* skeleton - match dark theme so the flash isn't jarring */
+    .stApp, [data-testid="stAppViewContainer"] {
+        background-color: #0d1117;
+    }
+    [data-testid="stSkeleton"] {
+        background: linear-gradient(
+            90deg,
+            #161b22 0px,
+            #21262d 40px,
+            #161b22 80px
+        ) !important;
+        background-size: 600px 100% !important;
+        animation: sk-shimmer 1.6s infinite linear !important;
+        border-radius: 4px !important;
+    }
+    @keyframes sk-shimmer {
+        0%   { background-position: -600px 0; }
+        100% { background-position:  600px 0; }
+    }
+    /* sidebar skeleton bg */
+    [data-testid="stSidebar"] {
+        background-color: #161b22;
+    }
+    /* mobile: sidebar hidden so suppress its skeleton */
+    @media (max-width: 768px) {
+        [data-testid="stSidebar"] [data-testid="stSkeleton"] {
+            display: none !important;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. MOCK DATABASES (defined early so sidebar can reference them)
+# mock dbs for the demo
 mentors_df = pd.DataFrame([
     {"Name": "Dr. Sarah Chen", "Expertise": "Fintech scaling & regulatory compliance", "Industry": "Fintech"},
     {"Name": "Ahmad Razali", "Expertise": "AgriTech supply chains & enterprise sales", "Industry": "AgriTech"},
@@ -130,7 +158,7 @@ partners_df = pd.DataFrame([
     {"Name": "National Health", "Focus Area": "HealthTech pilots & legacy integrations"}
 ])
 
-# --- POOL BROWSER DIALOGS ---
+# modals for browsing pools
 @st.dialog("Mentor Pool", width="large")
 def mentor_pool_dialog():
     st.caption(f"{len(mentors_df)} mentors in the ecosystem database")
@@ -158,7 +186,7 @@ def partner_pool_dialog():
         }
     )
 
-# 3. THE SIDEBAR
+# sidebar stuff
 with st.sidebar:
     st.markdown(
         '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">'
@@ -170,7 +198,7 @@ with st.sidebar:
     st.caption("Ecosystem Matchmaking Dashboard · v2.4.0")
     st.divider()
 
-    # --- Live Session Stats ---
+    # stats
     st.markdown('<p style="color:#8b949e; font-size:0.78em; text-transform:uppercase; font-weight:600; margin-bottom:6px;">Session Overview</p>', unsafe_allow_html=True)
 
     files_queued    = len(st.session_state.get("file_manager", []))
@@ -192,10 +220,10 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Pool Browsers ---
+    # db viewers
     st.markdown('<p style="color:#8b949e; font-size:0.78em; text-transform:uppercase; font-weight:600; margin-bottom:6px;">Ecosystem Pools</p>', unsafe_allow_html=True)
     if st.button("Browse Mentor Pool", use_container_width=True, icon=":material/person_search:"):
-        st.session_state.xai_open = None  # close XAI if open to avoid two-dialog conflict
+        st.session_state.xai_open = None  # close xai to avoid dialog overlap
         mentor_pool_dialog()
     if st.button("Browse Partner Pool", use_container_width=True, icon=":material/handshake:"):
         st.session_state.xai_open = None
@@ -203,7 +231,7 @@ with st.sidebar:
 
     st.divider()
 
-    # --- Export shortcut ---
+    # csv export
     if not st.session_state.get("linkages_df", pd.DataFrame()).empty:
         csv_data = st.session_state.linkages_df.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -217,7 +245,7 @@ with st.sidebar:
     else:
         st.caption("No approved linkages to export yet.")
 
-# 4. SESSION STATE INITIALIZATION
+# init state variables
 if "linkages_df" not in st.session_state:
     st.session_state.linkages_df = pd.DataFrame(
         columns=["Target Startup", "Matched Entity", "Type", "Status", "Match Reason"]
@@ -233,13 +261,12 @@ if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 1
 
 if "xai_chats" not in st.session_state:
-    st.session_state.xai_chats = {}  # { filename: [{role, content}, ...] }
+    st.session_state.xai_chats = {}
 
 if "xai_open" not in st.session_state:
-    st.session_state.xai_open = None  # keeps the dialog alive across reruns
+    st.session_state.xai_open = None
 
 if "xai_rate" not in st.session_state:
-    # { filename: {count: int, last_ts: float} }
     st.session_state.xai_rate = {}
 
 if "is_processing" not in st.session_state:
@@ -253,7 +280,7 @@ if "toast_msg" not in st.session_state:
 if "toast_type" not in st.session_state:
     st.session_state.toast_type = "success"
 
-# --- CUSTOM TOAST SYSTEM ---
+# custom toast cuz st.toast is ugly
 def show_toast(message, type="success"):
     color = "#10b981" if type == "success" else "#ef4444"
     bg = "#10b9810d" if type == "success" else "#ef44440d"
@@ -293,7 +320,7 @@ def show_toast(message, type="success"):
     """
     st.markdown(css, unsafe_allow_html=True)
 
-# --- PREVIEW DIALOG & UTILS ---
+# file previewer
 @st.dialog("Document Preview", width="large")
 def preview_dialog(file_dict):
     if file_dict['type'] == "application/pdf":
@@ -311,7 +338,7 @@ class DummyFile:
     def getvalue(self):
         return self.bytes
 
-# --- XAI CHAT DIALOG ---
+# xai chat modal
 @st.dialog("Explainability Chat", width="large")
 def xai_chat_dialog(filename, analysis):
     startup = analysis.get("startup", {})
@@ -342,7 +369,7 @@ def xai_chat_dialog(filename, analysis):
 
     needs_ai = history and history[-1]["role"] == "user"
 
-    # Scroll container first — stream AI inside it if needed
+    # chat container
     with st.container(height=420, border=False):
         for msg in history:
             with st.chat_message(msg["role"]):
@@ -354,11 +381,11 @@ def xai_chat_dialog(filename, analysis):
                     query_xai(analysis, history[:-1], history[-1]["content"])
                 )
             history.append({"role": "assistant", "content": ai_reply})
-            st.rerun()  # safe: xai_open keeps dialog alive across reruns
+            st.rerun()
 
-    # Chat input AFTER container so it renders at the bottom
+    # chat input needs to be at bottom
     if needs_ai:
-        pass  # rerun incoming, input shown on next render
+        pass
     elif user_msg_count >= MAX_MSGS:
         st.warning(f"Message limit reached ({MAX_MSGS} messages per session).")
     else:
@@ -375,9 +402,9 @@ def xai_chat_dialog(filename, analysis):
                 rate["count"]  += 1
                 rate["last_ts"] = now
                 history.append({"role": "user", "content": user_q})
-                st.rerun()  # safe: xai_open keeps dialog alive across reruns
+                st.rerun()
 
-# 5. SAFETY & AI LOGIC
+# ai logic & constraints
 SAFETY_SYSTEM_INSTRUCTION = (
     "You are an enterprise decision support AI for Cradle Fund Malaysia. "
     "STRICT SAFETY RULE: Refuse to process any content related to Malaysian 3R issues "
@@ -458,7 +485,7 @@ def approve_linkage(startup_name: str, entity_name: str, entity_type: str, reaso
         st.session_state.linkages_df = pd.concat([st.session_state.linkages_df, new_row], ignore_index=True)
 
 def query_xai(analysis: dict, chat_history: list, user_question: str):
-    """Stream Gemini XAI response. Yields text chunks."""
+    # stream xai chunks back to ui
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
         yield "Error: API key not configured."
@@ -521,7 +548,7 @@ If a user asks about someone not in the above lists, confirm they are not in the
     except Exception as e:
         yield f"XAI Error: {str(e)}"
 
-# 6. MAIN UI HEADER
+# main ui headers
 if st.session_state.toast_msg:
     show_toast(st.session_state.toast_msg, st.session_state.toast_type)
     st.session_state.toast_msg = None
@@ -530,7 +557,7 @@ st.markdown('<h1 style="font-size: 2.5rem; margin-bottom: 0;">LinkOps Engine</h1
 st.markdown('<p style="color: #8b949e; font-size: 1.1rem; margin-top: 0;">Automated Linkage Engine for Program Administrators</p>', unsafe_allow_html=True)
 st.write("")
 
-# Bulk File Uploader
+# file uploader
 MAX_FILES = 5
 MAX_FILE_SIZE_MB = 10
 
@@ -555,7 +582,7 @@ if uploaded_new:
             st.session_state.toast_type = "error"
             continue
             
-        # Avoid duplicate additions
+        # prevent dupes
         if not any(existing['name'] == f.name for existing in st.session_state.file_manager):
             st.session_state.file_manager.append({
                 "name": f.name,
@@ -571,7 +598,7 @@ if uploaded_new:
         st.session_state.toast_type = "success"
         st.rerun()
 
-# Custom File List Rendering
+# file list ui
 if st.session_state.file_manager:
     st.markdown('<div style="margin-top: 1rem; margin-bottom: 0.5rem; font-weight: 600; color: #8b949e; text-transform: uppercase; font-size: 0.85em;">Ready for Processing:</div>', unsafe_allow_html=True)
     
@@ -630,7 +657,7 @@ if st.session_state.file_manager:
                         st.session_state.pending_delete = f['name']
                         st.rerun()
 
-        # Trigger the 3 second auto-revert OUTSIDE columns so it doesn't affect layout
+        # 3s auto revert hack for delete btn
         if st.session_state.pending_delete == f['name']:
             components.html("""
             <script>
@@ -649,7 +676,7 @@ if st.session_state.file_manager:
     st.write("")
 
     if st.session_state.is_processing:
-        # --- PROCESSING VIEW: Show progress bar, hide button ---
+        # processing state logic
         files_to_process = [f for f in st.session_state.file_manager
                             if f['name'] not in st.session_state.processed_startups]
         total = len(files_to_process)
@@ -658,14 +685,14 @@ if st.session_state.file_manager:
 
         for i, f in enumerate(files_to_process):
             file_start  = int((i / total) * 100)
-            file_target = int(((i + 0.85) / total) * 100)  # hold at 85% per file
+            file_target = int(((i + 0.85) / total) * 100)
 
             status_text.markdown(
                 f"Analysing **{f['name']}** &nbsp;({i+1}/{total})",
                 unsafe_allow_html=True
             )
 
-            # Run API in background thread while bar ticks forward
+            # bg thread for api so ui doesnt freeze completely
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(execute_match_protocol, DummyFile(f))
 
@@ -682,10 +709,10 @@ if st.session_state.file_manager:
             if analysis:
                 st.session_state.processed_startups[f['name']] = analysis
 
-            # Snap to file's proportional completion (NOT 100% yet)
+            # snap progress
             progress_bar.progress(int(((i + 1) / total) * 100))
 
-        # Count how many actually succeeded
+        # check fails
         actually_processed = sum(
             1 for f in files_to_process if f['name'] in st.session_state.processed_startups
         )
@@ -695,7 +722,7 @@ if st.session_state.file_manager:
         time.sleep(0.4)
 
         if actually_processed == 0:
-            progress_bar.progress(0)  # Reset bar — nothing succeeded
+            progress_bar.progress(0)
             status_text.markdown("Processing failed. No decks were analysed.")
             st.session_state.toast_msg  = f"Failed to process all {total} file(s). Check your API quota."
             st.session_state.toast_type = "error"
@@ -713,7 +740,7 @@ if st.session_state.file_manager:
         st.rerun()
 
     else:
-        # --- IDLE VIEW: Smart submit button ---
+        # idle state
         new_files = [f for f in st.session_state.file_manager
                      if f['name'] not in st.session_state.processed_startups]
         all_done   = len(new_files) == 0
@@ -732,13 +759,13 @@ if st.session_state.file_manager:
 
 st.divider()
 
-# 8. HUMAN-IN-THE-LOOP DASHBOARD
+# hitl approvals
 st.markdown('<h3>Pending Approvals</h3>', unsafe_allow_html=True)
 
 if not st.session_state.processed_startups:
     st.info("No pitch decks processed yet.")
 else:
-    # Re-open XAI dialog if it was open before a rerun (e.g. from chat_input submission)
+    # keep xai open on rerun
     if st.session_state.xai_open and st.session_state.xai_open in st.session_state.processed_startups:
         xai_chat_dialog(st.session_state.xai_open, st.session_state.processed_startups[st.session_state.xai_open])
 
@@ -750,7 +777,7 @@ else:
         
         expander_title = f'Startup Profile: {startup_name}'
         with st.expander(expander_title, expanded=True):
-            # Dismiss X button — flush right
+            # dismiss btn
             _, dismiss_col = st.columns([20, 1])
             with dismiss_col:
                 if st.button("", icon=":material/close:", key=f"dismiss_{filename}",
@@ -781,7 +808,7 @@ else:
                 else:
                     if st.button("Approve Mentor", key=f"app_m_{filename}", type="primary"):
                         approve_linkage(startup_name, mentor.get('name'), "Mentor", mentor.get('reason'))
-                        st.session_state.xai_open  = None  # prevent XAI from auto-reopening
+                        st.session_state.xai_open  = None
                         st.session_state.toast_msg  = "Mentor linkage approved!"
                         st.session_state.toast_type = "success"
                         st.rerun()
@@ -797,12 +824,12 @@ else:
                 else:
                     if st.button("Approve Partner", key=f"app_p_{filename}", type="primary"):
                         approve_linkage(startup_name, partner.get('name'), "Partner", partner.get('reason'))
-                        st.session_state.xai_open  = None  # prevent XAI from auto-reopening
+                        st.session_state.xai_open  = None
                         st.session_state.toast_msg  = "Partner linkage approved!"
                         st.session_state.toast_type = "success"
                         st.rerun()
 
-            # ── XAI TRIGGER BUTTON ──────────────────────────────────────────
+            # open xai btn
             st.markdown("")
             if st.button(
                 "Ask AI — Why these matches?",
@@ -815,7 +842,7 @@ else:
 
 st.divider()
 
-# 9. LEDGER
+# history ledger
 st.markdown('<h3>Approved Ecosystem Linkages</h3>', unsafe_allow_html=True)
 
 if st.session_state.linkages_df.empty:
@@ -823,7 +850,7 @@ if st.session_state.linkages_df.empty:
 else:
     df = st.session_state.linkages_df
 
-    # Build rows
+    # rows
     rows_html = ""
     for _, row in df.iterrows():
         rows_html += (
@@ -878,7 +905,7 @@ else:
         mime='text/csv'
     )
 
-# --- HIDDEN LOGIC TRIGGERS ---
+# hidden js triggers
 components.html("""
 <script>
 const parent = window.parent.document;
