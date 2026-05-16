@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 from google import genai
@@ -412,7 +413,7 @@ SAFETY_SYSTEM_INSTRUCTION = (
 )
 
 def execute_match_protocol(uploaded_file) -> dict | None:
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         st.error("ERROR: GEMINI_API_KEY not found in Streamlit secrets.")
         return None
@@ -486,7 +487,7 @@ def approve_linkage(startup_name: str, entity_name: str, entity_type: str, reaso
 
 def query_xai(analysis: dict, chat_history: list, user_question: str):
     # stream xai chunks back to ui
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         yield "Error: API key not configured."
         return
