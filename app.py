@@ -4,6 +4,9 @@ from google import genai
 import json
 import base64
 import streamlit.components.v1 as components
+import time
+import random
+import concurrent.futures
 
 # 1. PAGE CONFIG & MATERIAL ICONS
 st.set_page_config(
@@ -179,6 +182,19 @@ if "file_manager" not in st.session_state:
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 1
 
+if "xai_chats" not in st.session_state:
+    st.session_state.xai_chats = {}  # { filename: [{role, content}, ...] }
+
+if "xai_open" not in st.session_state:
+    st.session_state.xai_open = None  # filename of the currently open XAI chat dialog
+
+if "xai_rate" not in st.session_state:
+    # { filename: {count: int, last_ts: float} }
+    st.session_state.xai_rate = {}
+
+if "is_processing" not in st.session_state:
+    st.session_state.is_processing = False
+
 if "pending_delete" not in st.session_state:
     st.session_state.pending_delete = None
 
@@ -244,6 +260,76 @@ class DummyFile:
         self.bytes = f_dict['bytes']
     def getvalue(self):
         return self.bytes
+
+# --- XAI CHAT DIALOG ---
+@st.dialog("Explainability Chat", width="large")
+def xai_chat_dialog(filename, analysis):
+    startup = analysis.get("startup", {})
+    startup_name = startup.get("name", "Unknown Startup")
+    mentor  = analysis.get("mentor", {})
+    partner = analysis.get("partner", {})
+
+    MAX_MSGS     = 20
+    COOLDOWN_SEC = 3
+    MAX_CHARS    = 500
+
+    # Seed on first open
+    if filename not in st.session_state.xai_chats:
+        st.session_state.xai_chats[filename] = [{
+            "role": "assistant",
+            "content": (
+                f"I matched **{startup_name}** with **{mentor.get('name')}** as mentor and "
+                f"**{partner.get('name')}** as partner. "
+                f"Ask me anything about these recommendations \u2014 why I picked them, "
+                f"why I didn't pick others, or anything else about this startup's profile."
+            )
+        }]
+    if filename not in st.session_state.xai_rate:
+        st.session_state.xai_rate[filename] = {"count": 0, "last_ts": 0.0}
+
+    rate           = st.session_state.xai_rate[filename]
+    history        = st.session_state.xai_chats[filename]
+    user_msg_count = sum(1 for m in history if m["role"] == "user")
+
+    # State: does the last message need an AI reply?
+    needs_ai = history and history[-1]["role"] == "user"
+
+    # Render scroll container — if AI response is needed, stream it INSIDE here too
+    with st.container(height=420, border=False):
+        for msg in history:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        if needs_ai:
+            # Stream inside the container → no content appears below, no position jump
+            with st.chat_message("assistant"):
+                ai_reply = st.write_stream(
+                    query_xai(analysis, history[:-1], history[-1]["content"])
+                )
+            history.append({"role": "assistant", "content": ai_reply})
+            st.rerun()  # rerun to show chat input; no jump since msg rendered in-place
+
+    # Chat input and rate limit warning live OUTSIDE the scroll container
+    if needs_ai:
+        pass  # chat_input shown on next rerun after AI responds
+    elif user_msg_count >= MAX_MSGS:
+        st.warning(f"Message limit reached ({MAX_MSGS} messages per session).")
+    else:
+        user_q = st.chat_input("Ask the AI about these matches...", key=f"xai_dlg_{filename}")
+        if user_q:
+            now = time.time()
+            if len(user_q) > MAX_CHARS:
+                st.session_state.toast_msg  = f"Message too long. Limit is {MAX_CHARS} characters."
+                st.session_state.toast_type = "error"
+            elif (now - rate["last_ts"]) < COOLDOWN_SEC:
+                st.session_state.toast_msg  = f"Please wait {COOLDOWN_SEC}s between messages."
+                st.session_state.toast_type = "error"
+            else:
+                rate["count"]   += 1
+                rate["last_ts"]  = now
+                # Append user msg and rerun immediately — NO rendering below the input
+                history.append({"role": "user", "content": user_q})
+                st.rerun()  # next rerun: container shows user msg, then streams AI
 
 # 5. SAFETY & AI LOGIC
 SAFETY_SYSTEM_INSTRUCTION = (
@@ -325,6 +411,70 @@ def approve_linkage(startup_name: str, entity_name: str, entity_type: str, reaso
         }])
         st.session_state.linkages_df = pd.concat([st.session_state.linkages_df, new_row], ignore_index=True)
 
+def query_xai(analysis: dict, chat_history: list, user_question: str):
+    """Stream Gemini XAI response. Yields text chunks."""
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        yield "Error: API key not configured."
+        return
+
+    startup = analysis.get("startup", {})
+    mentor  = analysis.get("mentor", {})
+    partner = analysis.get("partner", {})
+
+    system_context = f"""You are a focused Explainable AI assistant inside the LinkOps Engine — a startup ecosystem matchmaking platform.
+
+YOUR ROLE: Help the human admin understand and interrogate the AI matchmaking decisions for this specific startup.
+
+SCOPE RULES:
+- You MAY answer any question related to: this startup's profile, the mentor/partner selected, why any other person or entity (even if they are not in the database) was or was not chosen, comparisons between candidates, or the matchmaking logic in general.
+- If someone asks about a name that does not appear in the database, explain clearly that the person is not in the available pool and cannot be considered.
+- You MUST refuse ONLY questions that have absolutely no connection to matchmaking, this startup, or this platform. Examples of things to refuse: writing code, telling jokes, general trivia, political opinions, tasks unrelated to this tool.
+- When refusing, respond with exactly: "I'm only able to discuss matters related to these match recommendations."
+- Do NOT change your recommendations. Only explain them.
+- Be concise, direct, and factual.
+
+--- STARTUP PROFILE ---
+Name: {startup.get('name', 'N/A')}
+Industry: {startup.get('industry', 'N/A')}
+Core Challenge: {startup.get('challenges', 'N/A')}
+
+--- YOUR DECISIONS ---
+Mentor Matched: {mentor.get('name', 'N/A')}
+Mentor Reason: {mentor.get('reason', 'N/A')}
+
+Partner Matched: {partner.get('name', 'N/A')}
+Partner Reason: {partner.get('reason', 'N/A')}
+
+--- ALL AVAILABLE MENTORS (the only options in the system) ---
+{mentors_df.to_string(index=False)}
+
+--- ALL AVAILABLE PARTNERS (the only options in the system) ---
+{partners_df.to_string(index=False)}
+
+If a user asks about someone not in the above lists, confirm they are not in the database and explain why the chosen candidates are more suitable."""
+
+    contents = []
+    for msg in chat_history:
+        role = "user" if msg["role"] == "user" else "model"
+        contents.append(genai.types.Content(role=role, parts=[genai.types.Part(text=msg["content"])]))
+    contents.append(genai.types.Content(role="user", parts=[genai.types.Part(text=user_question)]))
+
+    try:
+        client = genai.Client(api_key=api_key)
+        for chunk in client.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=system_context,
+                temperature=0.3,
+            ),
+        ):
+            if chunk.text:
+                yield chunk.text
+    except Exception as e:
+        yield f"XAI Error: {str(e)}"
+
 # 6. MAIN UI HEADER
 if st.session_state.toast_msg:
     show_toast(st.session_state.toast_msg, st.session_state.toast_type)
@@ -380,8 +530,9 @@ if st.session_state.file_manager:
     st.markdown('<div style="margin-top: 1rem; margin-bottom: 0.5rem; font-weight: 600; color: #8b949e; text-transform: uppercase; font-size: 0.85em;">Ready for Processing:</div>', unsafe_allow_html=True)
     
     for idx, f in enumerate(st.session_state.file_manager):
+        is_analysed = f['name'] in st.session_state.processed_startups
         with st.container(border=True):
-            col_icon, col_name, col_size, col_eye, col_x = st.columns([0.5, 8, 2, 0.7, 0.7], vertical_alignment="center")
+            col_icon, col_name, col_status, col_size, col_eye, col_x = st.columns([0.5, 6, 2, 2, 0.7, 0.7], vertical_alignment="center")
             
             with col_icon:
                 icon = "picture_as_pdf" if f['type'] == "application/pdf" else "image"
@@ -389,6 +540,26 @@ if st.session_state.file_manager:
                 
             with col_name:
                 st.markdown(f"<span style='color:#e6edf3; font-weight: 500;'>{f['name']}</span>", unsafe_allow_html=True)
+
+            with col_status:
+                if is_analysed:
+                    st.markdown(
+                        '<span style="background:rgba(16,185,129,0.1); color:#10b981; border:1px solid #10b981; '
+                        'border-radius:999px; padding:2px 10px; font-size:11px; font-weight:600; '
+                        'display:inline-flex; align-items:center; gap:4px;">'
+                        '<span class="material-symbols-outlined" style="font-size:13px;">check_circle</span>'
+                        'Analysed</span>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.markdown(
+                        '<span style="background:rgba(245,158,11,0.1); color:#f59e0b; border:1px solid #f59e0b; '
+                        'border-radius:999px; padding:2px 10px; font-size:11px; font-weight:600; '
+                        'display:inline-flex; align-items:center; gap:4px;">'
+                        '<span class="material-symbols-outlined" style="font-size:13px;">schedule</span>'
+                        'Pending</span>',
+                        unsafe_allow_html=True
+                    )
                 
             with col_size:
                 st.markdown(f"<span style='color:#8b949e; font-size:12px;'>{f['size'] / 1024 / 1024:.2f} MB</span>", unsafe_allow_html=True)
@@ -430,13 +601,88 @@ if st.session_state.file_manager:
             """, height=0)
 
     st.write("")
-    if st.button("Process Uploaded Decks", type="primary"):
-        with st.spinner("Extracting and matching..."):
-            for f in st.session_state.file_manager:
-                if f['name'] not in st.session_state.processed_startups:
-                    analysis = execute_match_protocol(DummyFile(f))
-                    if analysis:
-                        st.session_state.processed_startups[f['name']] = analysis
+
+    if st.session_state.is_processing:
+        # --- PROCESSING VIEW: Show progress bar, hide button ---
+        files_to_process = [f for f in st.session_state.file_manager
+                            if f['name'] not in st.session_state.processed_startups]
+        total = len(files_to_process)
+        progress_bar = st.progress(0)
+        status_text  = st.empty()
+
+        for i, f in enumerate(files_to_process):
+            file_start  = int((i / total) * 100)
+            file_target = int(((i + 0.85) / total) * 100)  # hold at 85% per file
+
+            status_text.markdown(
+                f"Analysing **{f['name']}** &nbsp;({i+1}/{total})",
+                unsafe_allow_html=True
+            )
+
+            # Run API in background thread while bar ticks forward
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(execute_match_protocol, DummyFile(f))
+
+                current = file_start
+                while not future.done() and current < file_target:
+                    remaining  = file_target - current
+                    increment  = random.randint(1, max(1, remaining // 4))
+                    current    = min(current + increment, file_target)
+                    progress_bar.progress(current)
+                    time.sleep(random.uniform(0.18, 0.45))
+
+                analysis = future.result()
+
+            if analysis:
+                st.session_state.processed_startups[f['name']] = analysis
+
+            # Snap to file's proportional completion (NOT 100% yet)
+            progress_bar.progress(int(((i + 1) / total) * 100))
+
+        # Count how many actually succeeded
+        actually_processed = sum(
+            1 for f in files_to_process if f['name'] in st.session_state.processed_startups
+        )
+        failed = total - actually_processed
+
+        st.session_state.is_processing = False
+        time.sleep(0.4)
+
+        if actually_processed == 0:
+            progress_bar.progress(0)  # Reset bar — nothing succeeded
+            status_text.markdown("Processing failed. No decks were analysed.")
+            st.session_state.toast_msg  = f"Failed to process all {total} file(s). Check your API quota."
+            st.session_state.toast_type = "error"
+        elif failed > 0:
+            status_text.markdown(f"{actually_processed} of {total} processed. {failed} failed.")
+            st.session_state.toast_msg  = f"{actually_processed} of {total} deck(s) processed. {failed} failed — check API quota."
+            st.session_state.toast_type = "error"
+        else:
+            progress_bar.progress(100)
+            status_text.markdown("All decks processed successfully!")
+            st.session_state.toast_msg  = f"{total} deck(s) processed successfully!"
+            st.session_state.toast_type = "success"
+
+        time.sleep(0.6)
+        st.rerun()
+
+    else:
+        # --- IDLE VIEW: Smart submit button ---
+        new_files = [f for f in st.session_state.file_manager
+                     if f['name'] not in st.session_state.processed_startups]
+        all_done   = len(new_files) == 0
+        btn_label  = (
+            "All Files Already Analysed"
+            if all_done
+            else f"Analyse {len(new_files)} New File{'s' if len(new_files) != 1 else ''}"
+        )
+        _, btn_col, _ = st.columns([1, 2, 1])
+        with btn_col:
+            if st.button(btn_label, type="primary", use_container_width=True,
+                         disabled=all_done,
+                         help="All uploaded files have already been analysed." if all_done else None):
+                st.session_state.is_processing = True
+                st.rerun()
 
 st.divider()
 
@@ -446,12 +692,30 @@ st.markdown('<h3>Pending Approvals</h3>', unsafe_allow_html=True)
 if not st.session_state.processed_startups:
     st.info("No pitch decks processed yet.")
 else:
-    for filename, analysis in st.session_state.processed_startups.items():
+    # Check if an XAI dialog should be open
+    if st.session_state.xai_open and st.session_state.xai_open in st.session_state.processed_startups:
+        xai_chat_dialog(st.session_state.xai_open, st.session_state.processed_startups[st.session_state.xai_open])
+
+    for filename, analysis in list(st.session_state.processed_startups.items()):
         startup = analysis.get("startup", {})
         startup_name = startup.get("name", "Unknown Startup")
+        mentor = analysis.get("mentor", {})
+        partner = analysis.get("partner", {})
         
-        expander_title = f'🏢 Startup Profile: {startup_name}'
+        expander_title = f'Startup Profile: {startup_name}'
         with st.expander(expander_title, expanded=True):
+            # Dismiss X button — flush right
+            _, dismiss_col = st.columns([20, 1])
+            with dismiss_col:
+                if st.button("", icon=":material/close:", key=f"dismiss_{filename}",
+                             help="Dismiss this card", use_container_width=True):
+                    del st.session_state.processed_startups[filename]
+                    if filename in st.session_state.xai_chats:
+                        del st.session_state.xai_chats[filename]
+                    st.session_state.toast_msg  = f"'{startup_name}' dismissed."
+                    st.session_state.toast_type = "success"
+                    st.rerun()
+
             col_info, col_matches = st.columns([1, 2])
             
             with col_info:
@@ -462,7 +726,6 @@ else:
             with col_matches:
                 st.markdown('<p style="color: #8b949e; font-size: 0.85em; text-transform: uppercase; font-weight: 600;">Recommended Linkages</p>', unsafe_allow_html=True)
                 
-                mentor = analysis.get("mentor", {})
                 st.markdown(f'**<span class="material-symbols-outlined" style="font-size: 18px;">person</span> Mentor Match:** {mentor.get("name", "N/A")}', unsafe_allow_html=True)
                 st.caption(f"{mentor.get('reason', '')}")
                 
@@ -472,13 +735,12 @@ else:
                 else:
                     if st.button("Approve Mentor", key=f"app_m_{filename}", type="primary"):
                         approve_linkage(startup_name, mentor.get('name'), "Mentor", mentor.get('reason'))
-                        st.session_state.toast_msg = "Mentor Linked!"
+                        st.session_state.toast_msg = "Mentor linkage approved!"
                         st.session_state.toast_type = "success"
                         st.rerun()
                 
                 st.markdown("---")
                 
-                partner = analysis.get("partner", {})
                 st.markdown(f'**<span class="material-symbols-outlined" style="font-size: 18px;">handshake</span> Partner Match:** {partner.get("name", "N/A")}', unsafe_allow_html=True)
                 st.caption(f"{partner.get('reason', '')}")
                 
@@ -488,9 +750,20 @@ else:
                 else:
                     if st.button("Approve Partner", key=f"app_p_{filename}", type="primary"):
                         approve_linkage(startup_name, partner.get('name'), "Partner", partner.get('reason'))
-                        st.session_state.toast_msg = "Partner Linked!"
+                        st.session_state.toast_msg = "Partner linkage approved!"
                         st.session_state.toast_type = "success"
                         st.rerun()
+
+            # ── XAI TRIGGER BUTTON ──────────────────────────────────────────
+            st.markdown("")
+            if st.button(
+                "Ask AI — Why these matches?",
+                key=f"xai_btn_{filename}",
+                icon=":material/psychology:",
+                help="Open the Explainability Chat for this startup"
+            ):
+                st.session_state.xai_open = filename
+                st.rerun()
 
 st.divider()
 
