@@ -43,39 +43,13 @@ st.markdown("""
         padding-top: 0rem !important;
     }
 
-    /* Sidebar Toggle / Hamburger Fixes */
-    /* 1. Prevent the button from hiding when not hovering */
+    /* Sidebar Toggle — keep collapse button always visible */
     [data-testid="stSidebarHeader"],
     [data-testid="stSidebarCollapseButton"],
     [data-testid="collapsedControl"] {
         opacity: 1 !important;
         visibility: visible !important;
         transition: none !important;
-    }
-
-    /* 2. Hide the default Streamlit chevron SVGs */
-    [data-testid="stSidebarCollapseButton"] svg,
-    [data-testid="collapsedControl"] svg {
-        display: none !important;
-        opacity: 0 !important;
-    }
-
-    /* 3. Inject the Hamburger Icon directly into the buttons */
-    [data-testid="stSidebarCollapseButton"],
-    [data-testid="collapsedControl"] {
-        position: relative !important;
-    }
-    [data-testid="stSidebarCollapseButton"]::after,
-    [data-testid="collapsedControl"]::after {
-        content: "\\e5d2" !important;
-        font-family: 'Material Symbols Outlined' !important;
-        font-size: 24px !important;
-        color: #8b949e !important;
-        position: absolute !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        pointer-events: none !important; /* Prevents icon from blocking clicks */
     }
 
     /* --- Button Alignment Fix --- */
@@ -132,28 +106,17 @@ st.markdown("""
     [data-testid="stFileUploaderDropzone"]:hover::before {
         background-color: #30363d;
     }
+
+    /* Center all @st.dialog modals vertically in the viewport */
+    [data-testid="stModal"] {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# 2. THE SIDEBAR (Dark Mode Optimized)
-with st.sidebar:
-    st.markdown('### <span class="material-symbols-outlined" style="color: #1f6feb;">hub</span> Admin Console', unsafe_allow_html=True)
-    st.caption("v2.4.0-stable")
-    st.button("New Linkage", type="primary", use_container_width=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Custom Navigation Links
-    st.markdown('<div style="color: #c9d1d9; font-weight: 500; padding: 8px 0;"><span class="material-symbols-outlined" style="color: #8b949e; margin-right: 8px;">dashboard</span> Overview</div>', unsafe_allow_html=True)
-    st.markdown('<div style="color: #8b949e; padding: 8px 0;"><span class="material-symbols-outlined" style="margin-right: 8px;">upload_file</span> Upload Center</div>', unsafe_allow_html=True)
-    st.markdown('<div style="color: #8b949e; padding: 8px 0;"><span class="material-symbols-outlined" style="margin-right: 8px;">device_hub</span> Network Graph</div>', unsafe_allow_html=True)
-    st.markdown('<div style="color: #8b949e; padding: 8px 0;"><span class="material-symbols-outlined" style="margin-right: 8px;">settings</span> Settings</div>', unsafe_allow_html=True)
-    
-    st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.divider()
-    st.markdown('<div style="color: #8b949e; padding: 4px 0; font-size: 0.85em;"><span class="material-symbols-outlined" style="font-size: 16px; margin-right: 4px;">help</span> Support</div>', unsafe_allow_html=True)
-    st.markdown('<div style="color: #8b949e; padding: 4px 0; font-size: 0.85em;"><span class="material-symbols-outlined" style="font-size: 16px; margin-right: 4px;">description</span> Documentation</div>', unsafe_allow_html=True)
-
-# 3. MOCK DATABASES
+# 2. MOCK DATABASES (defined early so sidebar can reference them)
 mentors_df = pd.DataFrame([
     {"Name": "Dr. Sarah Chen", "Expertise": "Fintech scaling & regulatory compliance", "Industry": "Fintech"},
     {"Name": "Ahmad Razali", "Expertise": "AgriTech supply chains & enterprise sales", "Industry": "AgriTech"},
@@ -166,6 +129,93 @@ partners_df = pd.DataFrame([
     {"Name": "AgriCorp", "Focus Area": "AgriTech pilots & distribution networks"},
     {"Name": "National Health", "Focus Area": "HealthTech pilots & legacy integrations"}
 ])
+
+# --- POOL BROWSER DIALOGS ---
+@st.dialog("Mentor Pool", width="large")
+def mentor_pool_dialog():
+    st.caption(f"{len(mentors_df)} mentors in the ecosystem database")
+    st.dataframe(
+        mentors_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Name":      st.column_config.TextColumn("Name",      width="medium"),
+            "Industry":  st.column_config.TextColumn("Industry",  width="small"),
+            "Expertise": st.column_config.TextColumn("Expertise", width="large"),
+        }
+    )
+
+@st.dialog("Partner Pool", width="large")
+def partner_pool_dialog():
+    st.caption(f"{len(partners_df)} partners in the ecosystem database")
+    st.dataframe(
+        partners_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Name":       st.column_config.TextColumn("Name",       width="medium"),
+            "Focus Area": st.column_config.TextColumn("Focus Area", width="large"),
+        }
+    )
+
+# 3. THE SIDEBAR
+with st.sidebar:
+    st.markdown(
+        '<div style="display:flex; align-items:center; gap:10px; margin-bottom:4px;">'
+        '<span class="material-symbols-outlined" style="color:#1f6feb; font-size:28px;">hub</span>'
+        '<span style="font-size:1.2rem; font-weight:700;">LinkOps Engine</span>'
+        '</div>',
+        unsafe_allow_html=True
+    )
+    st.caption("Ecosystem Matchmaking Dashboard · v2.4.0")
+    st.divider()
+
+    # --- Live Session Stats ---
+    st.markdown('<p style="color:#8b949e; font-size:0.78em; text-transform:uppercase; font-weight:600; margin-bottom:6px;">Session Overview</p>', unsafe_allow_html=True)
+
+    files_queued    = len(st.session_state.get("file_manager", []))
+    files_processed = len(st.session_state.get("processed_startups", {}))
+    approved_count  = len(st.session_state.get("linkages_df", pd.DataFrame()))
+    pending_count   = max(0, files_processed - sum(
+        1 for fn in st.session_state.get("processed_startups", {})
+        if not st.session_state.get("linkages_df", pd.DataFrame()).empty
+        and fn in st.session_state.get("linkages_df", pd.DataFrame()).get("Target Startup", pd.Series()).values
+    ))
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.metric("Files Queued", files_queued)
+        st.metric("Approved", approved_count)
+    with col_b:
+        st.metric("Processed", files_processed)
+        st.metric("Pending", files_processed - min(files_processed, approved_count // 2))
+
+    st.divider()
+
+    # --- Pool Browsers ---
+    st.markdown('<p style="color:#8b949e; font-size:0.78em; text-transform:uppercase; font-weight:600; margin-bottom:6px;">Ecosystem Pools</p>', unsafe_allow_html=True)
+    if st.button("Browse Mentor Pool", use_container_width=True, icon=":material/person_search:"):
+        st.session_state.xai_open = None  # close XAI if open to avoid two-dialog conflict
+        mentor_pool_dialog()
+    if st.button("Browse Partner Pool", use_container_width=True, icon=":material/handshake:"):
+        st.session_state.xai_open = None
+        partner_pool_dialog()
+
+    st.divider()
+
+    # --- Export shortcut ---
+    if not st.session_state.get("linkages_df", pd.DataFrame()).empty:
+        csv_data = st.session_state.linkages_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="Export Ledger CSV",
+            data=csv_data,
+            file_name="linkops_ledger.csv",
+            mime="text/csv",
+            use_container_width=True,
+            icon=":material/download:"
+        )
+    else:
+        st.caption("No approved linkages to export yet.")
 
 # 4. SESSION STATE INITIALIZATION
 if "linkages_df" not in st.session_state:
@@ -186,7 +236,7 @@ if "xai_chats" not in st.session_state:
     st.session_state.xai_chats = {}  # { filename: [{role, content}, ...] }
 
 if "xai_open" not in st.session_state:
-    st.session_state.xai_open = None  # filename of the currently open XAI chat dialog
+    st.session_state.xai_open = None  # keeps the dialog alive across reruns
 
 if "xai_rate" not in st.session_state:
     # { filename: {count: int, last_ts: float} }
@@ -273,7 +323,6 @@ def xai_chat_dialog(filename, analysis):
     COOLDOWN_SEC = 3
     MAX_CHARS    = 500
 
-    # Seed on first open
     if filename not in st.session_state.xai_chats:
         st.session_state.xai_chats[filename] = [{
             "role": "assistant",
@@ -291,27 +340,25 @@ def xai_chat_dialog(filename, analysis):
     history        = st.session_state.xai_chats[filename]
     user_msg_count = sum(1 for m in history if m["role"] == "user")
 
-    # State: does the last message need an AI reply?
     needs_ai = history and history[-1]["role"] == "user"
 
-    # Render scroll container — if AI response is needed, stream it INSIDE here too
+    # Scroll container first — stream AI inside it if needed
     with st.container(height=420, border=False):
         for msg in history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
         if needs_ai:
-            # Stream inside the container → no content appears below, no position jump
             with st.chat_message("assistant"):
                 ai_reply = st.write_stream(
                     query_xai(analysis, history[:-1], history[-1]["content"])
                 )
             history.append({"role": "assistant", "content": ai_reply})
-            st.rerun()  # rerun to show chat input; no jump since msg rendered in-place
+            st.rerun()  # safe: xai_open keeps dialog alive across reruns
 
-    # Chat input and rate limit warning live OUTSIDE the scroll container
+    # Chat input AFTER container so it renders at the bottom
     if needs_ai:
-        pass  # chat_input shown on next rerun after AI responds
+        pass  # rerun incoming, input shown on next render
     elif user_msg_count >= MAX_MSGS:
         st.warning(f"Message limit reached ({MAX_MSGS} messages per session).")
     else:
@@ -325,11 +372,10 @@ def xai_chat_dialog(filename, analysis):
                 st.session_state.toast_msg  = f"Please wait {COOLDOWN_SEC}s between messages."
                 st.session_state.toast_type = "error"
             else:
-                rate["count"]   += 1
-                rate["last_ts"]  = now
-                # Append user msg and rerun immediately — NO rendering below the input
+                rate["count"]  += 1
+                rate["last_ts"] = now
                 history.append({"role": "user", "content": user_q})
-                st.rerun()  # next rerun: container shows user msg, then streams AI
+                st.rerun()  # safe: xai_open keeps dialog alive across reruns
 
 # 5. SAFETY & AI LOGIC
 SAFETY_SYSTEM_INSTRUCTION = (
@@ -692,7 +738,7 @@ st.markdown('<h3>Pending Approvals</h3>', unsafe_allow_html=True)
 if not st.session_state.processed_startups:
     st.info("No pitch decks processed yet.")
 else:
-    # Check if an XAI dialog should be open
+    # Re-open XAI dialog if it was open before a rerun (e.g. from chat_input submission)
     if st.session_state.xai_open and st.session_state.xai_open in st.session_state.processed_startups:
         xai_chat_dialog(st.session_state.xai_open, st.session_state.processed_startups[st.session_state.xai_open])
 
@@ -729,28 +775,30 @@ else:
                 st.markdown(f'**<span class="material-symbols-outlined" style="font-size: 18px;">person</span> Mentor Match:** {mentor.get("name", "N/A")}', unsafe_allow_html=True)
                 st.caption(f"{mentor.get('reason', '')}")
                 
-                if ((st.session_state.linkages_df["Target Startup"] == startup_name) & 
+                if ((st.session_state.linkages_df["Target Startup"] == startup_name) &
                     (st.session_state.linkages_df["Matched Entity"] == mentor.get('name'))).any():
                     st.success("Mentor Match Approved")
                 else:
                     if st.button("Approve Mentor", key=f"app_m_{filename}", type="primary"):
                         approve_linkage(startup_name, mentor.get('name'), "Mentor", mentor.get('reason'))
-                        st.session_state.toast_msg = "Mentor linkage approved!"
+                        st.session_state.xai_open  = None  # prevent XAI from auto-reopening
+                        st.session_state.toast_msg  = "Mentor linkage approved!"
                         st.session_state.toast_type = "success"
                         st.rerun()
-                
+
                 st.markdown("---")
-                
+
                 st.markdown(f'**<span class="material-symbols-outlined" style="font-size: 18px;">handshake</span> Partner Match:** {partner.get("name", "N/A")}', unsafe_allow_html=True)
                 st.caption(f"{partner.get('reason', '')}")
-                
-                if ((st.session_state.linkages_df["Target Startup"] == startup_name) & 
+
+                if ((st.session_state.linkages_df["Target Startup"] == startup_name) &
                     (st.session_state.linkages_df["Matched Entity"] == partner.get('name'))).any():
                     st.success("Partner Match Approved")
                 else:
                     if st.button("Approve Partner", key=f"app_p_{filename}", type="primary"):
                         approve_linkage(startup_name, partner.get('name'), "Partner", partner.get('reason'))
-                        st.session_state.toast_msg = "Partner linkage approved!"
+                        st.session_state.xai_open  = None  # prevent XAI from auto-reopening
+                        st.session_state.toast_msg  = "Partner linkage approved!"
                         st.session_state.toast_type = "success"
                         st.rerun()
 
@@ -773,8 +821,55 @@ st.markdown('<h3>Approved Ecosystem Linkages</h3>', unsafe_allow_html=True)
 if st.session_state.linkages_df.empty:
     st.info("No approved linkages yet.")
 else:
-    st.dataframe(st.session_state.linkages_df, use_container_width=True, hide_index=True)
-    
+    df = st.session_state.linkages_df
+
+    # Build rows
+    rows_html = ""
+    for _, row in df.iterrows():
+        rows_html += (
+            f"<tr>"
+            f"<td style='white-space:nowrap;'>{row['Target Startup']}</td>"
+            f"<td style='white-space:nowrap;'>{row['Matched Entity']}</td>"
+            f"<td style='white-space:nowrap; width:60px;'>{row['Type']}</td>"
+            f"<td style='white-space:nowrap; width:90px;'><span style='background:rgba(16,185,129,0.12);color:#10b981;"
+            f"border:1px solid #10b981;border-radius:999px;padding:2px 10px;"
+            f"font-size:11px;font-weight:600;white-space:nowrap;display:inline-block;'>{row['Status']}</span></td>"
+            f"<td style='color:#c9d1d9;font-size:0.88em;line-height:1.6;width:50%;'>{row['Match Reason']}</td>"
+            f"</tr>"
+        )
+
+    table_html = f"""
+    <style>
+    .linkage-table {{
+        width: 100%; border-collapse: collapse;
+        font-family: inherit; font-size: 0.9rem; color: #e6edf3;
+    }}
+    .linkage-table th {{
+        text-align: left; padding: 10px 14px;
+        background: #161b22; color: #8b949e;
+        font-size: 0.75em; text-transform: uppercase;
+        font-weight: 600; border-bottom: 1px solid #30363d;
+    }}
+    .linkage-table td {{
+        padding: 10px 14px; vertical-align: top;
+        border-bottom: 1px solid #21262d; word-break: break-word;
+    }}
+    .linkage-table tr:last-child td {{ border-bottom: none; }}
+    .linkage-table tr:hover td {{ background: #1c2128; }}
+    </style>
+    <table class="linkage-table">
+      <thead>
+        <tr>
+          <th>Target Startup</th><th>Matched Entity</th>
+          <th>Type</th><th>Status</th><th>Match Reason</th>
+        </tr>
+      </thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+    """
+    st.markdown(table_html, unsafe_allow_html=True)
+    st.write("")
+
     csv_export = st.session_state.linkages_df.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="Export to CSV",
