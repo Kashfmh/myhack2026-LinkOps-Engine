@@ -145,19 +145,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# mock dbs for the demo
-mentors_df = pd.DataFrame([
-    {"Name": "Dr. Sarah Chen", "Expertise": "Fintech scaling & regulatory compliance", "Industry": "Fintech"},
-    {"Name": "Ahmad Razali", "Expertise": "AgriTech supply chains & enterprise sales", "Industry": "AgriTech"},
-    {"Name": "Maria Gomez", "Expertise": "HealthTech data privacy & hospital integrations", "Industry": "HealthTech"},
-    {"Name": "David Lee", "Expertise": "EdTech user growth & product strategy", "Industry": "EdTech"}
-])
-
-partners_df = pd.DataFrame([
-    {"Name": "Global Bank", "Focus Area": "Fintech partnerships & regulatory sandboxes"},
-    {"Name": "AgriCorp", "Focus Area": "AgriTech pilots & distribution networks"},
-    {"Name": "National Health", "Focus Area": "HealthTech pilots & legacy integrations"}
-])
+# load live ecosystem databases
+mentors_df = pd.read_csv("data/mentors.csv")
+partners_df = pd.read_csv("data/partners.csv")
 
 # modals for browsing pools
 @st.dialog("Mentor Pool", width="large")
