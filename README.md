@@ -148,9 +148,21 @@ docker run -p 8080:8080 -e GEMINI_API_KEY=your_key linkops
 
 ```
 linkops/
-├── app.py                  # main app
+├── app.py                  # ~70 lines — page config, state init, section calls
+├── config.py               # constants (MAX_FILES, model name, XAI limits)
 ├── requirements.txt
 ├── Dockerfile
+├── core/
+│   ├── __init__.py
+│   └── matchmaker.py       # execute_match_protocol, query_xai, approve_linkage
+├── ui/
+│   ├── __init__.py
+│   ├── styles.py           # inject_styles(), show_toast()
+│   ├── dialogs.py          # all @st.dialog functions (pools, preview, XAI chat)
+│   ├── sidebar.py          # render_sidebar()
+│   ├── file_manager.py     # render_file_manager() + DummyFile
+│   ├── approvals.py        # render_approvals()
+│   └── ledger.py           # render_ledger()
 ├── data/
 │   ├── mentors.csv         # mentor database (30 mentors)
 │   ├── partners.csv        # partner database (18 partners)
@@ -177,7 +189,7 @@ The AI reads the full database content at inference time, so new entries are pic
 ## Limitations
 
 - session state is in-memory — approved linkages reset on page refresh (no database persistence yet)
-- 5 file / 10MB limits are hardcoded constants in `app.py`
+- file/size limits are defined in `config.py` (`MAX_FILES`, `MAX_FILE_SIZE_MB`)
 - XAI chat history is per-session only
 
 ---
